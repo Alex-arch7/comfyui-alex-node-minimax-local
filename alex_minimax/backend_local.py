@@ -26,8 +26,14 @@ import folder_paths
 try:
     from llama_cpp import Llama as LlamaGGUF
     _HAS_LLAMA_CPP = True
-except ImportError:  # pragma: no cover
+    _LLAMA_CPP_IMPORT_ERROR = ""
+except Exception as _llama_exc:  # ImportError, or OSError from a wheel
+    # built against a different CUDA/libstdc++ (undefined symbol). A broken
+    # llama_cpp must never break plugin import; local nodes then report the
+    # original error at run time.
     _HAS_LLAMA_CPP = False
+    _LLAMA_CPP_IMPORT_ERROR = f"{type(_llama_exc).__name__}: {_llama_exc}"
+    print(f"[AlexMiniMax-Local] llama_cpp import failed: {_LLAMA_CPP_IMPORT_ERROR}")
 
 try:
     import comfy.model_management as comfy_mm
@@ -258,9 +264,15 @@ class LocalLLMClient:
 
     def __init__(self, settings):
         if not _HAS_LLAMA_CPP:
-            raise RuntimeError(
-                "本地GGUF推理需要 'llama-cpp-python'。请执行: pip install llama-cpp-python"
-            )
+            if _LLAMA_CPP_IMPORT_ERROR:
+                raise RuntimeError(
+                    "本地GGUF推理需要可导入的 'llama-cpp-python'，但当前导入失败："
+                    f"{_LLAMA_CPP_IMPORT_ERROR}\n"
+                    "常见原因：已安装的 wheel 与本机 CUDA/驱动/libstdc++ 不匹配（undefined symbol）。"
+                    "请换用与 CUDA 版本匹配的构建（参考 JamePeng/llama-cpp-python Releases），"
+                    "或先 pip install llama-cpp-python 源码构建。"
+                )
+            raise RuntimeError("本地GGUF推理需要 'llama-cpp-python'。请执行: pip install llama-cpp-python")
         self.settings = dict(settings)
 
     def _ensure_model(self, payload):

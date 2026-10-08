@@ -15,15 +15,28 @@ MiniMax H3 nodes downstream, locks the real asset numbering, and offers
 @-material references.
 """
 
-from .nodes_h3 import NODE_CLASS_MAPPINGS as H3_NODES, NODE_DISPLAY_NAME_MAPPINGS as H3_NAMES
-from .nodes_music3 import NODE_CLASS_MAPPINGS as MUSIC3_NODES, NODE_DISPLAY_NAME_MAPPINGS as MUSIC3_NAMES
-from .nodes_qwen_image import (
-    NODE_CLASS_MAPPINGS as QWEN_IMAGE_NODES,
-    NODE_DISPLAY_NAME_MAPPINGS as QWEN_IMAGE_NAMES,
-)
+import importlib
+import traceback
 
-NODE_CLASS_MAPPINGS = {**H3_NODES, **MUSIC3_NODES, **QWEN_IMAGE_NODES}
-NODE_DISPLAY_NAME_MAPPINGS = {**H3_NAMES, **MUSIC3_NAMES, **QWEN_IMAGE_NAMES}
+_MODULE_ERRORS = {}
+NODE_CLASS_MAPPINGS = {}
+NODE_DISPLAY_NAME_MAPPINGS = {}
+
+for _module_name in ("nodes_h3", "nodes_music3", "nodes_qwen_image"):
+    try:
+        _module = importlib.import_module(f".{_module_name}", __name__)
+        NODE_CLASS_MAPPINGS.update(_module.NODE_CLASS_MAPPINGS)
+        NODE_DISPLAY_NAME_MAPPINGS.update(_module.NODE_DISPLAY_NAME_MAPPINGS)
+    except Exception as _exc:
+        _MODULE_ERRORS[_module_name] = _exc
+        print(f"[AlexMiniMax] ❌ import failed in {_module_name}:")
+        traceback.print_exc()
+
+if _MODULE_ERRORS:
+    print(f"[AlexMiniMax] {len(_MODULE_ERRORS)} module(s) failed to import; "
+          "the traceback above shows the exact cause. Nodes from healthy modules are still registered.")
+else:
+    print("[AlexMiniMax] nodes imported: " + ", ".join(sorted(NODE_CLASS_MAPPINGS)))
 
 WEB_DIRECTORY = "./web"
 
