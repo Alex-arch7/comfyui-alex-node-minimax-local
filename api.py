@@ -44,7 +44,14 @@ def register_routes():
         print("[AlexMiniMax] server module not found; HTTP routes not registered.")
         return
 
-    routes = PromptServer.instance.routes
+    # PromptServer.instance only exists while the ComfyUI server is running
+    # (standalone diagnose.py imports `server` without a live instance).
+    instance = getattr(PromptServer, "instance", None)
+    if instance is None or getattr(instance, "routes", None) is None:
+        print("[AlexMiniMax] ComfyUI server not running; routes register automatically on ComfyUI start.")
+        return
+
+    routes = instance.routes
     routes.post("/alex_minimax/refresh_models")(refresh_models)
     routes.get("/alex_minimax/models_cache")(models_cache)
     print("[AlexMiniMax] routes registered: POST /alex_minimax/refresh_models, GET /alex_minimax/models_cache")
