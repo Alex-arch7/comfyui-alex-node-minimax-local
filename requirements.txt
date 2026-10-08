@@ -1,0 +1,9 @@
+# Local GGUF backend (alex_XXXX_local nodes).
+# Qwen3-VL style vision needs a llama-cpp-python build that ships the
+# multimodal chat handlers (Qwen3VLChatHandler / Qwen25VLChatHandler).
+llama-cpp-python
+
+# Remote backend (alex_XXXX_API nodes) + media analysis.
+requests
+numpy
+pillow

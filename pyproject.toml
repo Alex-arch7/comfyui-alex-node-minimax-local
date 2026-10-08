@@ -1,0 +1,18 @@
+[project]
+name = "comfyui-alex-node-minimax-local"
+description = "MiniMax H3 / Music 3 prompt compilers and Qwen-Image-2.1 prompt rewriting for ComfyUI, with paired local GGUF (llama.cpp) and OpenAI-compatible API backends (alex_XXXX_local / alex_XXXX_API), official-H3-node asset-label locking and @-material editing."
+version = "0.1.0"
+license = { file = "LICENSE" }
+dependencies = [
+  "requests",
+  "numpy",
+  "pillow",
+]
+
+[project.urls]
+Repository = "https://github.com/alex/comfyui-alex-node-minimax-local"
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "Alex MiniMax H3/Music3 Prompt Compilers"
+Icon = ""
