@@ -278,6 +278,40 @@ cache.release(key, "gguf", "fam", offload_after_used=False)
 check("backend_local: offload=False keeps model cached",
       not model_c.closed and cache.has(key, "gguf", "fam"))
 
+# ---------------------------------------------------------------- h3 skill router
+from alex_minimax import h3_skill_spec
+
+check("h3_skill_spec: 9 official skills discovered",
+      len(h3_skill_spec.SKILL_NAMES) >= 9 and "h3-prompt-writing" in h3_skill_spec.SKILL_NAMES)
+check("h3_skill_spec: deterministic mode 0 images -> t2va", h3_skill_spec.detect_h3_mode(0, 0) == "t2va")
+check("h3_skill_spec: deterministic mode 3 images -> ref2va", h3_skill_spec.detect_h3_mode(3, 0) == "ref2va")
+check("h3_skill_spec: 1 image is ambiguous (needs LLM router)", h3_skill_spec.detect_h3_mode(1, 0) is None)
+check("h3_skill_spec: any video -> ref2va", h3_skill_spec.detect_h3_mode(1, 1) == "ref2va")
+check("h3_skill_spec: mode parse valid", h3_skill_spec.parse_mode_selection("i2va", 1) == "i2va")
+check("h3_skill_spec: mode parse fallback", h3_skill_spec.parse_mode_selection("I think it is a poster reference.", 1) == "ref2va")
+check("h3_skill_spec: skill parse valid",
+      h3_skill_spec.parse_skill_selection("minimalist-product-ad-generator") == "minimalist-product-ad-generator")
+check("h3_skill_spec: skill parse fallback to default",
+      h3_skill_spec.parse_skill_selection("no idea at all") == h3_skill_spec.DEFAULT_SKILL_ID)
+instructions = h3_skill_spec.skill_instructions("h3-prompt-writing", "ref2va")
+check("h3_skill_spec: ref2va loads ref-en reference guide",
+      "ref-en.txt" in instructions and "subject_definitions" in instructions)
+instructions_base = h3_skill_spec.skill_instructions("h3-prompt-writing", "i2va")
+check("h3_skill_spec: base mode loads base-en reference guide",
+      "# Required H3 reference: base-en.txt" in instructions_base
+      and "# Required H3 reference: ref-en.txt" not in instructions_base)
+contract = h3_skill_spec.system_prompt("h3-prompt-writing", "i2va", 5.0)
+check("h3_skill_spec: system prompt carries local output contract",
+      "Binding local ComfyUI output contract" in contract and "I2VA" in contract)
+check("h3_skill_spec: empty output flagged", h3_skill_spec.output_issues("   ", "i2va", 5.0) != [])
+check("h3_skill_spec: non-empty output passes", h3_skill_spec.output_issues("integrated_multimodal_description:\nx", "i2va", 5.0) == [])
+
+grid_uri = media.tensor_frame_grid_data_url(_FakeVideoTensor(
+    [np.full((8, 8, 3), value / 255.0, dtype=np.float32) for value in range(4)]), [0, 1, 2, 3])
+check("media: contact sheet built", grid_uri.startswith("data:image/jpeg;base64,"))
+groups = media.sample_indices_per_second(48, 24.0, 2)
+check("media: per-second sampling groups", len(groups) == 2 and len(groups[0]) == 2)
+
 # ---------------------------------------------------------------- summary
 print()
 if FAILURES:

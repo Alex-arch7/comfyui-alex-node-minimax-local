@@ -22,7 +22,7 @@ _MODULE_ERRORS = {}
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
-for _module_name in ("nodes_h3", "nodes_music3", "nodes_qwen_image"):
+for _module_name in ("nodes_h3", "nodes_h3_skill", "nodes_music3", "nodes_qwen_image"):
     try:
         _module = importlib.import_module(f".{_module_name}", __name__)
         NODE_CLASS_MAPPINGS.update(_module.NODE_CLASS_MAPPINGS)

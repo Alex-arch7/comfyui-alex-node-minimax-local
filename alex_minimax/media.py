@@ -7,6 +7,7 @@ so no cv2/imageio video decoding dependency is required.
 
 import base64
 import io
+import math
 import wave
 
 import numpy as np
@@ -192,3 +193,77 @@ def analyze_audio(audio_input, index, include_raw_audio):
     if include_raw_audio:
         result["raw_wav_base64"] = audio_to_wav_base64(channels, sample_rate)
     return result
+
+
+# ------------------------------------------------------------
+# Contact-sheet helpers for the Skill-router H3 nodes
+# (ported from ComfyUI-llama_Dapao h3_local/media.py)
+# ------------------------------------------------------------
+
+def sample_indices_per_second(frame_count, source_fps, samples_per_second):
+    """Group sampled frame indices into chronological one-second batches."""
+    if frame_count <= 0 or source_fps <= 0 or samples_per_second <= 0:
+        return []
+    groups = []
+    second_count = math.ceil(frame_count / source_fps)
+    for second_index in range(second_count):
+        start = round(second_index * source_fps)
+        end = min(frame_count, round((second_index + 1) * source_fps))
+        window_size = end - start
+        sample_count = min(samples_per_second, window_size)
+        indices = [
+            start + math.floor(sample_index * window_size / sample_count)
+            for sample_index in range(sample_count)
+        ]
+        groups.append(indices)
+    return groups
+
+
+def _frame_array(image_tensor, frame_index):
+    array = image_tensor[frame_index].detach().cpu().numpy()
+    if array.ndim == 3 and array.shape[-1] in (3, 4):
+        array = array[..., :3]
+    if float(array.max()) > 1.5:
+        array = array / 255.0
+    return np.clip(array * 255.0, 0, 255).astype(np.uint8)
+
+
+def tensor_frame_data_url(image_tensor, frame_index=0, max_edge=1280):
+    image = Image.fromarray(_frame_array(image_tensor, frame_index)).convert("RGB")
+    image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=90, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def tensor_frame_grid_data_url(image_tensor, frame_indices, max_edge=1280):
+    """Paste sampled frames into a row-major contact sheet (one image)."""
+    if not frame_indices:
+        raise ValueError("frame_indices must not be empty")
+    columns = math.ceil(math.sqrt(len(frame_indices)))
+    rows = math.ceil(len(frame_indices) / columns)
+    cell_size = max(1, max_edge // max(columns, rows))
+    canvas = Image.new("RGB", (columns * cell_size, rows * cell_size), (16, 16, 16))
+    for position, frame_index in enumerate(frame_indices):
+        image = Image.fromarray(_frame_array(image_tensor, frame_index)).convert("RGB")
+        image.thumbnail((cell_size, cell_size), Image.Resampling.LANCZOS)
+        column = position % columns
+        row = position // columns
+        x = column * cell_size + (cell_size - image.width) // 2
+        y = row * cell_size + (cell_size - image.height) // 2
+        canvas.paste(image, (x, y))
+    buffer = io.BytesIO()
+    canvas.save(buffer, format="JPEG", quality=88, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def image_content(image_tensor, frame_index=0):
+    return {"type": "image_url", "image_url": {"url": tensor_frame_data_url(image_tensor, frame_index), "detail": "auto"}}
+
+
+def image_grid_content(image_tensor, frame_indices):
+    return {"type": "image_url", "image_url": {"url": tensor_frame_grid_data_url(image_tensor, frame_indices), "detail": "auto"}}
+
+
+def text_content(text):
+    return {"type": "text", "text": text}

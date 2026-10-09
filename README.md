@@ -20,6 +20,8 @@ MiniMax **H3 音视频提示词编译器** + **Music 3 结构化音乐提示词*
 | `alex_h3_prompt_local` | alex_h3_prompt_local｜H3视频提示词(本地GGUF) | llama-cpp-python 本地 GGUF |
 | `alex_h3_prompt_API` | alex_h3_prompt_API｜H3视频提示词(OpenAI兼容) | OpenAI 兼容端点 |
 | `alex_h3_prompt_box` | alex_h3_prompt_box｜H3专用提示词框 | 无 LLM（纯校验） |
+| `alex_h3_skill_local` | alex_h3_skill_local｜H3提示词·Skill路由(本地GGUF) | 本地 GGUF |
+| `alex_h3_skill_API` | alex_h3_skill_API｜H3提示词·Skill路由(OpenAI兼容) | OpenAI 兼容端点 |
 | `alex_music3_local` | alex_music3_local｜Music3音乐提示词(本地GGUF) | 本地 GGUF |
 | `alex_music3_API` | alex_music3_API｜Music3音乐提示词(OpenAI兼容) | OpenAI 兼容端点 |
 | `alex_qwen_image21_local` | alex_qwen_image21_local｜Qwen-Image2.1提示词(本地GGUF) | 本地 GGUF |
@@ -75,6 +77,30 @@ MiniMax **H3 音视频提示词编译器** + **Music 3 结构化音乐提示词*
 4. 也可手写提示词：用 `alex_h3_prompt_box`（📝 H3提示词 + 🧩 H3素材标记 → 官方节点），
    它同样支持 `@` 素材引用并校验标记格式与编号连续性。
 
+### H3 Skill 路由版（alex_h3_skill_local / alex_h3_skill_API）
+
+与旗舰编译器的「31 创作预设 + 强审计」不同，Skill 路由版由**官方 MiniMax-H3 技能库**驱动，
+输出格式跟随所选 Skill 自身的 SKILL.md 指令（契约更松、风格更丰富）：
+
+- **9 个官方 Skill** 随插件打包在 `resources/h3_skills/`（1 个 h3-prompt-writing 提示词写作 +
+  8 个风格生成器：3D动画、品牌宣传片、极简产品广告、手绘直播、MV字幕、纸拼贴科普、
+  纸艺定格科普、联机游戏介绍）；自定义技能放 `resources/custom_skills/`（同名目录覆盖）；
+- **三段式路由**：素材数量确定性判模式（0图=T2VA、≥3图或含视频=Ref2VA）；1–2 图意图不明确时
+  用一次 32-token 轻量 LLM 调用判定首帧/尾帧/通用参考；`🧩 Skill=auto` 时再用一次 96-token
+  调用从技能目录自动选型（8B 级模型即可胜任路由）；
+- **参考视频按秒拼 contact sheet**（每秒采样帧数可调），一次调用看完全片节奏；
+- 空输出自动重试一次；`⏱️ 目标秒数` 允许 1–60 秒（直连官方 H3 节点请保持 4–15）。
+
+## 示例工作流（`examples/`）
+
+| 文件 | 内容 |
+|---|---|
+| `alex_h3_local_example.json` | 旗舰编译器基础用法 |
+| `alex_h3_ref2va_official_node.json` | Ref2VA 双参考图 → 编译 → 官方 `MiniMaxH3ReferenceToVideo`（prompt + ref_image_1/2 联动）+ 分析预览 |
+| `alex_h3_skill_local_example.json` | Skill 路由版：参考图 + Skill=auto 自动选型 → 预览 |
+
+导入后把 GGUF/mmproj 下拉换成你本机的模型即可运行。
+
 ## Music3 音乐提示词
 
 - 生成 MiniMax Music 3 三段式 caption（Global Metadata / Vocal Details / Arrangement）+ 完整歌词；
@@ -93,18 +119,19 @@ MiniMax **H3 音视频提示词编译器** + **Music 3 结构化音乐提示词*
 ## 架构
 
 ```
-nodes_h3.py / nodes_music3.py / nodes_qwen_image.py     ← 业务引擎（各一份）
+nodes_h3.py / nodes_h3_skill.py / nodes_music3.py / nodes_qwen_image.py   ← 业务引擎（各一份）
         │  client.chat(OpenAI风格 payload)
         ├── alex_minimax/backend_local.py   ← llama.cpp + mmproj chat_handler + 共享模型缓存
         └── alex_minimax/backend_api.py     ← OpenAI兼容端点 + /models 刷新 + 磁盘缓存
-alex_minimax/h3_spec.py / h3_audit.py / media.py / llm_common.py / music3_spec.py   ← 共享规范与工具
+alex_minimax/h3_spec.py / h3_skill_spec.py / h3_audit.py / media.py / llm_common.py / music3_spec.py   ← 共享规范与工具
+resources/h3_skills/（官方9技能） / custom_skills/（自定义） / music3_caption_rewriter/ / qwen_image_2_1/
 web/js/  ← 官方H3节点素材联动、@引用编辑器、Refresh Models 按钮
 ```
 
 ## 测试
 
 ```bash
-python -B _test_smoke.py   # 34 项纯逻辑测试：审计、清单、路由、媒体分析，无需模型
+python -B _test_smoke.py   # 58 项纯逻辑测试：审计、清单、路由、Skill库、媒体分析、缓存卸载，无需模型
 python diagnose.py         # 在 ComfyUI 机器上复现导入过程，打印真实报错
 ```
 
@@ -128,6 +155,7 @@ llama.cpp 显存分配失败会直接 `abort()` 杀掉整个进程，Python 无�
 ## 来源与致谢
 
 - 提示词规范、创作预设、审计与前端联动改编自 `ComfyUI-llama_Dapao`；
+  Skill 路由版（含官方 MiniMax-H3 技能库）沿其 `本地H3提示词` 血统，上游为 chflame163/ComfyUI_Qwen_H3_Prompt（MIT）；
 - 本地 GGUF 后端（GGUF/mmproj 扫描、多模态 chat_handler、常驻+LRU 缓存）改编自 `ComfyUI_qwen_chat_models`；
 - 远程后端（key+endpoint+可刷新模型下拉）改编自 `comfyui-alex-node-llm-api`；
 - H3 规范源自官方 MiniMax-H3 h3-prompt-writing skill；Qwen-Image-2.1 规则源自 iamyoki/qwen-image-2.1-skill（Apache-2.0）。

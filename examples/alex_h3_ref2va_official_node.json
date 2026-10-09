@@ -1,0 +1,288 @@
+{
+  "last_node_id": 5,
+  "last_link_id": 6,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [
+        80,
+        120
+      ],
+      "size": [
+        300,
+        320
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            1,
+            4
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        80,
+        480
+      ],
+      "size": [
+        300,
+        320
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            2,
+            5
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example2.png",
+        "image"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "alex_h3_prompt_local",
+      "pos": [
+        440,
+        80
+      ],
+      "size": [
+        430,
+        940
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "🖼️ 参考图1",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "🖼️ 参考图2",
+          "type": "IMAGE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "🎬 H3最终提示词",
+          "type": "STRING",
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "🎛️ 识别模式",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "📑 素材与制作分析",
+          "type": "STRING",
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "📄 LLM完整响应",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "ℹ️ 处理信息",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "alex_h3_prompt_local"
+      },
+      "widgets_values": [
+        "(未找到GGUF模型，请放入 ComfyUI/models/LLM/)",
+        "auto",
+        16384,
+        -1,
+        1024,
+        4096,
+        1.1,
+        20,
+        0.05,
+        false,
+        false,
+        "Ref2VA-全能参考",
+        "通用H3",
+        true,
+        "保持<Picture 1>女子的脸部身份与白色汉服服装，参考<Picture 2>的雾气湖泊与石栈环境；镜头缓慢推近，女子伸手轻触水面泛起涟漪，晨光渐强，只有远处城市底噪与轻微水声。",
+        "",
+        10,
+        "9:16",
+        true,
+        0.4,
+        4096,
+        1.0,
+        0
+      ]
+    },
+    {
+      "id": 4,
+      "type": "MiniMaxH3ReferenceToVideo",
+      "pos": [
+        940,
+        80
+      ],
+      "size": [
+        360,
+        420
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "link": 3
+        },
+        {
+          "name": "ref_image_1",
+          "type": "IMAGE",
+          "link": 4
+        },
+        {
+          "name": "ref_image_2",
+          "type": "IMAGE",
+          "link": 5
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "MiniMaxH3ReferenceToVideo"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 5,
+      "type": "PreviewAny",
+      "pos": [
+        940,
+        540
+      ],
+      "size": [
+        500,
+        380
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 6
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      1,
+      "IMAGE"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "STRING"
+    ],
+    [
+      4,
+      1,
+      0,
+      4,
+      1,
+      "IMAGE"
+    ],
+    [
+      5,
+      2,
+      0,
+      4,
+      2,
+      "IMAGE"
+    ],
+    [
+      6,
+      3,
+      2,
+      5,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "version": 0.4,
+  "extra": {
+    "ds_note": "Ref2VA多图编译→官方MiniMax H3节点联动示例。官方节点控件因插件版本而异，导入后按需设置duration/比例；H3节点的模型下拉需选择你本机的GGUF与mmproj。"
+  }
+}
