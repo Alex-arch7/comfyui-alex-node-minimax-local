@@ -4,6 +4,7 @@ Adapted from ComfyUI-llama_Dapao (h3_video_prompt_node.py).
 """
 
 import json
+import re
 import sys
 
 def safe_print(message):
@@ -13,14 +14,6 @@ def safe_print(message):
         encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
         printable = str(message).encode(encoding, errors="replace").decode(encoding, errors="replace")
         print(printable)
-
-
-def _log_info(message):
-    _safe_print(f"[dapaoAPI-H3视频提示词] 信息：{message}")
-
-
-def _log_error(message):
-    _safe_print(f"[dapaoAPI-H3视频提示词] 错误：{message}")
 
 
 def response_error(response):
@@ -83,6 +76,30 @@ def sanitized_result(value):
     if isinstance(value, str) and value.startswith("data:") and len(value) > 200:
         return f"<Data URI已省略，共{len(value)}字符>"
     return value
+
+
+def extract_finish_reason(result):
+    if not isinstance(result, dict):
+        return ""
+    choices = result.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        return str(choices[0].get("finish_reason") or "")
+    return ""
+
+
+_BLANK_RUN_PATTERN = re.compile(r"\n{3,}")
+
+
+def collapse_blank_runs(text):
+    """Collapse repetition-loop blank runs (\\n{3,}) into a single blank line.
+
+    Small local models sometimes fall into a newline repetition loop in long
+    structured outputs; returns (cleaned_text, removed_char_count).
+    """
+    original = str(text or "")
+    cleaned, _count = _BLANK_RUN_PATTERN.subn("\n\n", original)
+    cleaned = cleaned.strip()
+    return cleaned, len(original) - len(cleaned)
 
 
 def parse_h3_compiler_output(text, fallback_mode):

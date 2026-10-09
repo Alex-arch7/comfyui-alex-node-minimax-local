@@ -166,6 +166,9 @@ class OpenAICompatClient:
 
     def chat(self, payload):
         url = f"{self.endpoint}/chat/completions"
+        # Some OpenAI-compatible proxies reject unknown fields; seed only
+        # controls local sampling, so it is not forwarded (llama_Dapao parity).
+        payload = {key: value for key, value in payload.items() if key != "seed"}
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

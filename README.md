@@ -104,8 +104,26 @@ web/js/  ← 官方H3节点素材联动、@引用编辑器、Refresh Models 按�
 ## 测试
 
 ```bash
-python -B _test_smoke.py   # 29 项纯逻辑测试：审计、清单、路由、媒体分析，无需模型
+python -B _test_smoke.py   # 34 项纯逻辑测试：审计、清单、路由、媒体分析，无需模型
+python diagnose.py         # 在 ComfyUI 机器上复现导入过程，打印真实报错
 ```
+
+## 常见问题排查
+
+**1. 跑本地节点时整个 ComfyUI 崩溃（`CUDA error` / `Aborted (core dumped)`）**
+llama.cpp 显存分配失败会直接 `abort()` 杀掉整个进程，Python 无法捕获。插件已内置三层防护：
+- 加载前**显存预检**：估算模型+mmproj+KV缓存+计算缓冲 vs 当前 CUDA 空闲显存，不够时报中文错误并给出建议（降上下文/降图像最大token/降GPU层数/卸载生图模型），可用 `ALEX_SKIP_VRAM_CHECK=1` 跳过；
+- 上下文自动扩展改为按**图片实际尺寸**估算 Qwen-VL 视觉 token（`ceil(w/28)×ceil(h/28)`，实测与 llama.cpp `image_tokens->nx/ny` 一致），不再按「图像最大token」最坏情况预留；
+- 默认设置 `GGML_CUDA_NO_VMM=1`，绕开部分新驱动/CUDA 组合下有问题的 ggml VMM 池分配器。
+
+**2. 输出出现海量空行 / 内容被截断（小模型复读循环）**
+4B 级模型在 Ref2VA 长结构化输出下可能陷入换行复读。插件已：
+- 本地后端默认带反复读采样：🔁重复惩罚=1.1、🎲Top_K=20、🎲Min_P=0.05（可在节点上调，反复出现建议惩罚 1.2–1.3）；
+- 输出后处理自动把 3+ 连续换行压缩为空行；
+- `finish_reason=length` 或检测到大量空行时，在「📑 素材与制作分析」输出里给出 ⚠️ 质量提醒（提高最大输出令牌 / 换更大模型）。
+
+**3. API 节点报参数错误**
+`seed` 字段不会发给远程端点（部分中转站会 400），随机种仅控制 ComfyUI 缓存。
 
 ## 来源与致谢
 

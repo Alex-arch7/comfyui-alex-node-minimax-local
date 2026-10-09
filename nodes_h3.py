@@ -24,6 +24,7 @@ from .alex_minimax.h3_audit import audit_h3_prompt, parse_reference_manifest, au
 from .alex_minimax import media
 from .alex_minimax.llm_common import (
     safe_print, extract_text, sanitized_result, parse_h3_compiler_output,
+    collapse_blank_runs, extract_finish_reason,
 )
 from .alex_minimax.backend_local import local_model_inputs, local_settings_from_kwargs, LocalLLMClient
 from .alex_minimax.backend_api import api_model_inputs, api_client_from_kwargs, api_model_from_kwargs
@@ -427,7 +428,7 @@ class H3CompilerEngine:
             if not raw_text:
                 raise RuntimeError("LLM返回内容为空。")
             compiled = parse_h3_compiler_output(raw_text, resolved_mode)
-            h3_prompt = compiled["h3_prompt"]
+            h3_prompt, blank_removed = collapse_blank_runs(compiled["h3_prompt"])
             if not h3_prompt:
                 raise RuntimeError("LLM没有返回H3提示词。")
             returned_mode = resolved_mode
@@ -453,6 +454,21 @@ class H3CompilerEngine:
             )
             if audit_issues:
                 analysis = (analysis + "\n\n结构校验提醒：\n- " + "\n- ".join(audit_issues)).strip()
+
+            finish_reason = extract_finish_reason(result)
+            quality_warnings = []
+            if finish_reason == "length":
+                quality_warnings.append(
+                    "输出被最大输出令牌截断（finish_reason=length）：请提高📝最大输出令牌，"
+                    "或降低图像最大token/参考图数量以缩短输入。"
+                )
+            if blank_removed > 1500:
+                quality_warnings.append(
+                    f"检测到约{blank_removed}字符的重复空行（复读循环），已自动压缩；"
+                    "如反复出现请把🔁重复惩罚提高到1.2–1.3，或更换指令遵循更强的更大模型。"
+                )
+            if quality_warnings:
+                analysis = (analysis + "\n\n⚠️ 输出质量提醒：\n- " + "\n- ".join(quality_warnings)).strip()
 
             usage = result.get("usage", {}) if isinstance(result, dict) else {}
             info = (

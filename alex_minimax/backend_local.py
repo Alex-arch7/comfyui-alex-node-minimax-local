@@ -17,11 +17,20 @@ backends.
 
 import gc
 import inspect
+import math
 import os
 import threading
 import time
 
-import folder_paths
+# ggml's CUDA VMM pool allocator (ggml_cuda_pool_vmm::alloc) has been observed
+# to abort the whole process on some newer driver/CUDA combinations even with
+# free VRAM. Fall back to the classic allocator unless the user overrides.
+os.environ.setdefault("GGML_CUDA_NO_VMM", "1")
+
+try:
+    import folder_paths
+except ImportError:  # standalone diagnose.py / smoke tests
+    folder_paths = None
 
 try:
     from llama_cpp import Llama as LlamaGGUF
@@ -49,6 +58,8 @@ _GGUF_PATH_MAP = {}
 
 
 def _get_llm_dirs():
+    if folder_paths is None:
+        return []
     base = folder_paths.models_dir
     dirs = []
     for subdir in ("LLM", "llm"):
@@ -207,6 +218,10 @@ class ModelCache:
         with self._lock:
             self._unload_key(self._make_key(checkpoint, quantization, family))
 
+    def has(self, checkpoint, quantization, family) -> bool:
+        with self._lock:
+            return self._make_key(checkpoint, quantization, family) in self._cache
+
     def _evict_if_needed(self):
         while len(self._cache) > self.max_loaded_models:
             candidates = [(key, value) for key, value in self._cache.items() if not value["pinned"]]
@@ -219,12 +234,34 @@ class ModelCache:
         entry = self._cache.pop(key, None)
         if not entry:
             return
-        for obj in entry["resources"].values():
-            if hasattr(obj, "close"):
+        for obj in list(entry["resources"].values()):
+            # Drop the vision tower reference early: the chat handler owns the
+            # mmproj/clip model, and llama.cpp's close() does not free it.
+            for attr in ("_chat_handler", "chat_handler"):
                 try:
-                    obj.close()
+                    if getattr(obj, attr, None) is not None:
+                        setattr(obj, attr, None)
                 except Exception:
                     pass
+            close = getattr(obj, "close", None)
+            freed = False
+            if callable(close):
+                try:
+                    close()
+                    freed = True
+                except Exception:
+                    pass
+            if not freed:
+                # Older llama-cpp-python builds without Llama.close():
+                # free context and model manually.
+                for attr in ("_ctx", "_model"):
+                    handle = getattr(obj, attr, None)
+                    if handle is None:
+                        continue
+                    try:
+                        handle.free()
+                    except Exception:
+                        pass
         entry["resources"].clear()
         gc.collect()
         try:
@@ -259,6 +296,124 @@ def _payload_image_count(messages):
     return count
 
 
+def _data_uri_size(url):
+    try:
+        import base64
+        import io
+
+        from PIL import Image
+        if isinstance(url, str) and url.startswith("data:") and "," in url:
+            raw = base64.b64decode(url.split(",", 1)[1])
+            with Image.open(io.BytesIO(raw)) as image:
+                return image.size
+    except Exception:
+        return None
+    return None
+
+
+def estimate_vision_tokens(messages, image_min, image_max, qwen_style=True):
+    """Estimate real vision-token cost instead of worst-case image_max_tokens.
+
+    Qwen-VL handlers encode an image as ceil(w/28)*ceil(h/28) merged patches
+    (verified against llama.cpp `image_tokens->nx/ny` logs), so a 392x588
+    image costs ~294 tokens, not 4096. Other handlers keep
+    the conservative image_max_tokens behaviour.
+    """
+    total = 0
+    for message in messages:
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not (isinstance(item, dict) and item.get("type") == "image_url"):
+                continue
+            size = _data_uri_size((item.get("image_url") or {}).get("url", ""))
+            if qwen_style and size:
+                width, height = size
+                estimated = math.ceil(width / 28.0) * math.ceil(height / 28.0)
+                estimated = min(max(estimated, int(image_min)), int(image_max))
+            else:
+                estimated = int(image_max)
+            total += estimated
+    return total
+
+
+def _gguf_meta(path):
+    """Read block_count / KV geometry from GGUF metadata (best effort)."""
+    meta = {"layers": None, "kv_bytes_per_token": None}
+    try:
+        from llama_cpp.gguf_reader import GGUFReader
+        reader = GGUFReader(path, mode="rb")
+        architecture = reader.fields.get("general.architecture")
+        architecture = str(architecture.parts[0]) if architecture is not None else ""
+
+        def meta_int(key):
+            field = reader.fields.get(f"{architecture}.{key}")
+            if field is None:
+                return None
+            try:
+                return int(field.parts[0])
+            except Exception:
+                return None
+
+        layers = meta_int("block_count")
+        kv_heads = meta_int("attention.head_count_kv")
+        head_dim = meta_int("attention.head_length")
+        embedding = meta_int("embedding_length")
+        if not head_dim and embedding and kv_heads:
+            head_dim = embedding // kv_heads
+        meta["layers"] = layers
+        if layers and kv_heads and head_dim:
+            # K + V, f16 KV cache (llama.cpp default)
+            meta["kv_bytes_per_token"] = 2 * layers * kv_heads * head_dim * 2
+    except Exception:
+        pass
+    return meta
+
+
+def _preflight_vram_check(gguf_path, mmproj_path, n_ctx, n_gpu_layers):
+    """Intercept certain OOM before llama.cpp abort()s the whole process.
+
+    llama.cpp CUDA allocation failure calls ggml_abort() -> the entire
+    ComfyUI process dies (core dumped); Python cannot catch it. This check
+    raises a normal ValueError with concrete remedies instead.
+    """
+    if os.environ.get("ALEX_SKIP_VRAM_CHECK") == "1":
+        return
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return
+        free_bytes, _total_bytes = torch.cuda.mem_get_info()
+    except Exception:
+        return
+
+    gib = 1024 ** 3
+    model_bytes = os.path.getsize(gguf_path)
+    mmproj_bytes = os.path.getsize(mmproj_path) if mmproj_path and os.path.isfile(mmproj_path) else 0
+    meta = _gguf_meta(gguf_path)
+    kv_per_token = meta["kv_bytes_per_token"] or int(0.14 * 1024 * 1024)  # ~0.14 MB/token fallback
+    layers = meta["layers"] or 0
+
+    if n_gpu_layers >= 0 and layers:
+        gpu_fraction = min(1.0, n_gpu_layers / float(layers))
+    else:
+        gpu_fraction = 1.0
+    required = (model_bytes + mmproj_bytes) * gpu_fraction + kv_per_token * n_ctx * gpu_fraction + 1.2 * gib
+
+    if required > free_bytes * 0.92:
+        raise ValueError(
+            "显存预检失败（llama.cpp 显存不足会直接 abort 整个 ComfyUI 进程，这里提前拦截）：\n"
+            f"  预计需要 ≈ {required / gib:.1f} GB"
+            f"（模型 {model_bytes / gib:.1f} + 视觉投影 {mmproj_bytes / gib:.1f}"
+            f" + KV缓存 {kv_per_token * n_ctx / gib:.1f} + 计算缓冲 ~1.2，GPU层占比 {gpu_fraction:.0%}）\n"
+            f"  当前 CUDA 空闲 ≈ {free_bytes / gib:.1f} GB（n_ctx={n_ctx}）\n"
+            "建议：① 降低「📐本地上下文长度」或「🔢图像最大token」；"
+            "② 把「🎮GPU层数」改为部分层数（如 20）；③ 先卸载 ComfyUI 中占显存的生图/视频模型；"
+            "④ 确认显存确实足够时，可设环境变量 ALEX_SKIP_VRAM_CHECK=1 跳过本检查。"
+        )
+
+
 class LocalLLMClient:
     """OpenAI-compatible facade over a cached llama.cpp model."""
 
@@ -274,20 +429,13 @@ class LocalLLMClient:
                 )
             raise RuntimeError("本地GGUF推理需要 'llama-cpp-python'。请执行: pip install llama-cpp-python")
         self.settings = dict(settings)
+        self._loaded_cache_key = None
 
     def _ensure_model(self, payload):
         settings = self.settings
         max_tokens = int(payload.get("max_tokens", 1024))
         image_count = _payload_image_count(payload.get("messages", []))
         n_ctx = int(settings["n_ctx"])
-        if image_count:
-            required = int(settings["image_max_tokens"]) * image_count + max_tokens + 512
-            if required > 131072:
-                raise ValueError(
-                    "当前图片数量、图像最大token与输出token需要超过131072上下文。"
-                    "请减少图片数量、图像最大token或最大输出令牌。"
-                )
-            n_ctx = max(n_ctx, required)
 
         gguf_path = resolve_gguf_path(settings["model_file"])
         if not gguf_path or not os.path.isfile(gguf_path):
@@ -298,12 +446,34 @@ class LocalLLMClient:
         if image_count and not mmproj_path:
             raise ValueError("请求包含图片/视频帧，但该节点没有解析到mmproj视觉投影，请选择匹配的mmproj。")
 
+        if image_count:
+            handler_cls, _probe_kwargs = build_vision_chat_handler(mmproj_path)
+            vision_tokens = estimate_vision_tokens(
+                payload.get("messages", []),
+                int(settings.get("image_min_tokens", 1024)),
+                int(settings.get("image_max_tokens", 4096)),
+                qwen_style=handler_cls is not None and "Qwen" in handler_cls.__name__,
+            )
+            required = vision_tokens + max_tokens + 512
+            if required > 131072:
+                raise ValueError(
+                    "当前图片数量、图像最大token与输出token需要超过131072上下文。"
+                    "请减少图片数量、图像最大token或最大输出令牌。"
+                )
+            n_ctx = max(n_ctx, required)
+
+        n_gpu_layers = int(settings.get("n_gpu_layers", -1))
         cache_key = f"{gguf_path}|ctx{n_ctx}|mmproj{mmproj_path}"
+        # A cache hit allocates nothing new, so the VRAM pre-check must be
+        # skipped for it; otherwise the resident model itself would be
+        # counted as a deficit and the second run would always fail.
+        if not model_cache.has(cache_key, "gguf", "alex_minimax_model"):
+            _preflight_vram_check(gguf_path, mmproj_path, n_ctx, n_gpu_layers)
 
         def load_model():
             llm_kwargs = {
                 "model_path": gguf_path,
-                "n_gpu_layers": int(settings.get("n_gpu_layers", -1)),
+                "n_gpu_layers": n_gpu_layers,
                 "n_ctx": n_ctx,
                 "flash_attn": False,
                 "verbose": False,
@@ -322,10 +492,15 @@ class LocalLLMClient:
             print(f"[AlexMiniMax-Local] LOADING MODEL: {gguf_path} (n_ctx={n_ctx})")
             return {"model": LlamaGGUF(**llm_kwargs)}
 
-        return model_cache.get(
+        resources = model_cache.get(
             cache_key, "gguf", "alex_minimax_model", load_model,
             pinned=bool(settings.get("model_loaded_permanently", False)),
-        )["model"]
+        )
+        # Remember the EXACT cache key: rebuilding it at release time from
+        # llm.n_ctx / re-resolved paths can drift across llama-cpp
+        # versions, which made offload silently unload nothing.
+        self._loaded_cache_key = cache_key
+        return resources["model"]
 
     def chat(self, payload):
         llm = self._ensure_model(payload)
@@ -335,6 +510,9 @@ class LocalLLMClient:
                 temperature=float(payload.get("temperature", 0.4)),
                 max_tokens=int(payload.get("max_tokens", 1024)),
                 top_p=float(payload.get("top_p", 1.0)),
+                top_k=int(self.settings.get("top_k", 20)),
+                min_p=float(self.settings.get("min_p", 0.05)),
+                repeat_penalty=float(self.settings.get("repeat_penalty", 1.1)),
                 seed=int(payload.get("seed", 0)) if payload.get("seed") is not None else None,
             )
         finally:
@@ -345,9 +523,10 @@ class LocalLLMClient:
                     llm._hybrid_cache_mgr.clear()
             except Exception:
                 pass
+            if bool(self.settings.get("offload_after_used", False)):
+                print("[AlexMiniMax-Local] 🧹 推理后卸载模型：释放缓存与显存…")
             model_cache.release(
-                f"{resolve_gguf_path(self.settings['model_file'])}|ctx{llm.n_ctx}|mmproj"
-                f"{resolve_mmproj_path(self.settings['mmproj_file'], self.settings['model_file'])}",
+                getattr(self, "_loaded_cache_key", ""),
                 "gguf", "alex_minimax_model",
                 offload_after_used=bool(self.settings.get("offload_after_used", False)),
             )
@@ -362,6 +541,12 @@ def local_model_inputs():
         "🎮GPU层数(-1=全部)": ("INT", {"default": -1, "min": -1, "max": 999}),
         "🔢图像最小token": ("INT", {"default": 1024, "min": 1, "max": 4096}),
         "🔢图像最大token": ("INT", {"default": 4096, "min": 1, "max": 8192}),
+        "🔁重复惩罚": ("FLOAT", {
+            "default": 1.1, "min": 1.0, "max": 2.0, "step": 0.01,
+            "tooltip": "抑制复读/空行循环。H3长结构化输出用4B级小模型时建议1.1–1.3。",
+        }),
+        "🎲Top_K": ("INT", {"default": 20, "min": 0, "max": 200}),
+        "🎲Min_P": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.01}),
         "📌常驻显存不卸载": ("BOOLEAN", {"default": False, "tooltip": "固定该模型在缓存中，多个节点共用不重载。"}),
         "🧹推理后卸载模型": ("BOOLEAN", {"default": False, "tooltip": "本次推理结束后立即释放显存，给后续生图/视频节点让位。"}),
     }
@@ -375,6 +560,9 @@ def local_settings_from_kwargs(kwargs):
         "n_gpu_layers": int(kwargs["🎮GPU层数(-1=全部)"]),
         "image_min_tokens": int(kwargs["🔢图像最小token"]),
         "image_max_tokens": int(kwargs["🔢图像最大token"]),
+        "repeat_penalty": float(kwargs.get("🔁重复惩罚", 1.1)),
+        "top_k": int(kwargs.get("🎲Top_K", 20)),
+        "min_p": float(kwargs.get("🎲Min_P", 0.05)),
         "model_loaded_permanently": bool(kwargs.get("📌常驻显存不卸载", False)),
         "offload_after_used": bool(kwargs.get("🧹推理后卸载模型", False)),
     }

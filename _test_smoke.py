@@ -179,6 +179,75 @@ try:
 except ValueError:
     check("media: 0.5s video rejected", True)
 
+# ---------------------------------------------------------------- degeneration guards
+cleaned, removed = llm_common.collapse_blank_runs("a\n\n\n\n\nb" + "\n" * 300 + "c")
+check("llm_common: blank runs collapsed", cleaned.startswith("a\n\nb") and removed > 300)
+check("llm_common: finish_reason extracted",
+      llm_common.extract_finish_reason({"choices": [{"finish_reason": "length"}]}) == "length")
+
+from alex_minimax.backend_local import estimate_vision_tokens  # folder_paths now optional
+
+from alex_minimax.media import pil_to_data_uri
+from PIL import Image
+small_uri = pil_to_data_uri(Image.new("RGB", (392, 588)), max_side=2048, quality=90)
+messages = [{"role": "user", "content": [
+    {"type": "image_url", "image_url": {"url": small_uri}},
+    {"type": "text", "text": "hi"},
+]}]
+estimated = estimate_vision_tokens(messages, image_min=1024, image_max=4096, qwen_style=True)
+check("backend_local: qwen vision tokens estimated from real size (~294 clamped to min 1024)",
+      estimated == 1024)
+estimated_low_min = estimate_vision_tokens(messages, image_min=1, image_max=8192, qwen_style=True)
+check("backend_local: qwen estimate matches nx*ny patches (14*21=294)", estimated_low_min == 294)
+estimated_llava = estimate_vision_tokens(messages, image_min=1, image_max=4096, qwen_style=False)
+check("backend_local: non-qwen handlers keep worst-case", estimated_llava == 4096)
+
+# ---------------------------------------------------------------- offload / cache
+from alex_minimax.backend_local import ModelCache
+
+cache = ModelCache()
+
+class _FakeLlamaWithClose:
+    def __init__(self):
+        self.closed = False
+        self._chat_handler = object()
+
+    def close(self):
+        self.closed = True
+
+class _FakeFreeable:
+    def __init__(self):
+        self.freed = False
+
+    def free(self):
+        self.freed = True
+
+class _FakeLlamaNoClose:
+    def __init__(self):
+        self._ctx = _FakeFreeable()
+        self._model = _FakeFreeable()
+
+holder = {}
+key = "/models/x.gguf|ctx8192|mmproj/mm.gguf"
+model_a = _FakeLlamaWithClose()
+cache.get(key, "gguf", "fam", lambda: {"model": model_a})
+check("backend_local: cache hit detected", cache.has(key, "gguf", "fam"))
+cache.release(key, "gguf", "fam", offload_after_used=True)
+check("backend_local: offload closes model and evicts entry",
+      model_a.closed and not cache.has(key, "gguf", "fam"))
+
+model_b = _FakeLlamaNoClose()
+cache.get(key, "gguf", "fam", lambda: {"model": model_b})
+cache.release(key, "gguf", "fam", offload_after_used=True)
+check("backend_local: no-close fallback frees ctx and model",
+      model_b._ctx.freed and model_b._model.freed and not cache.has(key, "gguf", "fam"))
+
+model_c = _FakeLlamaWithClose()
+cache.get(key, "gguf", "fam", lambda: {"model": model_c})
+cache.release(key, "gguf", "fam", offload_after_used=False)
+check("backend_local: offload=False keeps model cached",
+      not model_c.closed and cache.has(key, "gguf", "fam"))
+
 # ---------------------------------------------------------------- summary
 print()
 if FAILURES:
