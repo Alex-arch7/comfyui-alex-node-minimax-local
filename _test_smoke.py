@@ -100,6 +100,36 @@ check("llm_common: fenced JSON parsed", compiled["mode"] == "I2VA" and compiled[
 plain = llm_common.parse_h3_compiler_output("just prose", "T2VA")
 check("llm_common: non-JSON falls back to prose", plain["h3_prompt"] == "just prose")
 
+nested = json.dumps({"mode": "Ref2VA", "h3_prompt": {
+    "subject_definitions": "<Subject 1> = a woman; <Subject 2> = a lake",
+    "summary": "[reference generation]",
+    "retention_analysis": "<Picture 1> fully_preserved; <Picture 2> partially_preserved",
+    "detailed_description": "[Shot 1] scene",
+    "overall_soundscape": "wind",
+    "non_diegetic_music": "N/A",
+}}, ensure_ascii=False)
+rendered = llm_common.parse_h3_compiler_output(nested, "Ref2VA")["h3_prompt"]
+check("llm_common: nested dict h3_prompt rendered to official multiline form",
+      rendered.startswith("subject_definitions:\n<Subject 1> = a woman\n<Subject 2> = a lake")
+      and "retention_analysis:\n<Picture 1> fully_preserved\n<Picture 2> partially_preserved" in rendered
+      and "'" not in rendered.split("\n")[0])
+
+bare = json.dumps({"subject_definitions": "<Subject 1> = x", "summary": "[reference generation]",
+                   "retention_analysis": "<Picture 1> fully_preserved", "detailed_description": "[Shot 1] y",
+                   "overall_soundscape": "N/A", "non_diegetic_music": "N/A"})
+bare_rendered = llm_common.parse_h3_compiler_output(bare, "Ref2VA")["h3_prompt"]
+check("llm_common: wrapper-less six-field JSON rendered too", "subject_definitions:\n" in bare_rendered)
+
+late_short = llm_common.parse_h3_compiler_output(json.dumps({
+    "mode": "Ref2VA",
+    "h3_prompt": "subject_definitions:\n<S1>\nsummary:\n[x]\nretention_analysis:\n<Picture 1> fully_preserved\ndetailed_description:\n[Shot 2] At 0:15 late\ntime.\noverall_soundscape:\nN/A\nnon_diegetic_music:\nN/A",
+}), "Ref2VA")["h3_prompt"]
+short_issues = h3_audit.audit_h3_prompt(late_short, "Ref2VA", 10.0, 1, 0, 0)
+check("h3_audit: non-official timestamp format flagged",
+      any("MM:SS.mmm" in issue for issue in short_issues))
+check("h3_audit: non-official timestamp out of range flagged",
+      any("0:15" in issue and "超出" in issue for issue in short_issues))
+
 # ---------------------------------------------------------------- music3_spec
 check("music3_spec: jazz routing cue", music3_spec.route_automatic_family("一首摇摆爵士大乐队") == "jazz-swing-big-band")
 check("music3_spec: trap routing cue", music3_spec.route_automatic_family("trap 说唱 808") == "hip-hop-rap")

@@ -52,6 +52,14 @@ def audit_h3_prompt(prompt, mode, duration, image_count, video_count, audio_coun
         if timestamp >= duration:
             issues.append(f"镜头切点{minute}:{second}.{millisecond}超出或等于目标时长{duration:.2f}秒。")
 
+    # Non-official timestamps like "At 0:15" (missing MM:SS.mmm precision):
+    # flag the format deviation and still check the duration bound.
+    for match in re.finditer(r"\bAt\s+(\d{1,2}):(\d{2})(?![\d.])", text):
+        minute, second = int(match.group(1)), int(match.group(2))
+        issues.append(f"时间戳「{match.group(0)}」未采用官方 MM:SS.mmm 格式。")
+        if minute * 60 + second >= duration:
+            issues.append(f"镜头切点{match.group(0)}超出或等于目标时长{duration:.2f}秒。")
+
     if mode == "Ref2VA":
         expected = {"Picture": image_count, "Video": video_count, "Audio": audio_count}
         for label, count in expected.items():

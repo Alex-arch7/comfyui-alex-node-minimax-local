@@ -102,6 +102,45 @@ def collapse_blank_runs(text):
     return cleaned, len(original) - len(cleaned)
 
 
+_H3_FIELD_ORDER = (
+    "subject_definitions",
+    "summary",
+    "retention_analysis",
+    "detailed_description",
+    "overall_soundscape",
+    "non_diegetic_music",
+    "integrated_multimodal_description",
+)
+
+
+def render_h3_prompt_dict(data):
+    """Render a dict-shaped H3 structure into the official field-per-line text.
+
+    Small models sometimes return h3_prompt as a nested JSON object (or skip
+    the wrapper entirely and put the six fields at top level). str(dict) would
+    produce an unreadable single-line Python repr, so fields are re-emitted in
+    official order with real newlines, and semicolon-separated
+    subject/retention lists are split onto their own lines.
+    """
+    keys = [key for key in _H3_FIELD_ORDER if key in data]
+    keys += [key for key in data if key not in _H3_FIELD_ORDER]
+    blocks = []
+    for key in keys:
+        value = data[key]
+        if isinstance(value, (list, tuple)):
+            text = "\n".join(str(item).strip() for item in value if str(item).strip())
+        elif isinstance(value, dict):
+            text = "\n".join(f"{item_key}: {item_value}" for item_key, item_value in value.items())
+        else:
+            text = str(value or "").strip()
+        if key in ("subject_definitions", "retention_analysis") and text:
+            parts = [part.strip() for part in re.split(r";\s*", text) if part.strip()]
+            if len(parts) > 1:
+                text = "\n".join(parts)
+        blocks.append(f"{key}:\n{text}")
+    return "\n\n".join(blocks)
+
+
 def parse_h3_compiler_output(text, fallback_mode):
     cleaned = str(text or "").strip()
     if cleaned.startswith("```"):
@@ -131,9 +170,18 @@ def parse_h3_compiler_output(text, fallback_mode):
             "material_analysis": "模型未返回结构化素材分析。",
             "production_notes": "模型返回内容未采用JSON封装，已将完整文本作为H3提示词输出。",
         }
+    raw_prompt = parsed.get("h3_prompt") or parsed.get("prompt")
+    if isinstance(raw_prompt, dict):
+        h3_text = render_h3_prompt_dict(raw_prompt)
+    elif isinstance(raw_prompt, str):
+        h3_text = raw_prompt.strip()
+    else:
+        # Wrapper missing: the object itself may already be the H3 structure.
+        field_keys = [key for key in parsed if key in _H3_FIELD_ORDER]
+        h3_text = render_h3_prompt_dict(parsed) if field_keys else ""
     return {
         "mode": str(parsed.get("mode") or fallback_mode).strip(),
-        "h3_prompt": str(parsed.get("h3_prompt") or parsed.get("prompt") or "").strip(),
+        "h3_prompt": h3_text,
         "material_analysis": str(parsed.get("material_analysis") or "").strip(),
         "production_notes": str(parsed.get("production_notes") or "").strip(),
     }
