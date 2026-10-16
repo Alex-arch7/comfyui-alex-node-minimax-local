@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 cache/
 .DS_Store
+resources/.h3_skills_backup_*/
+resources/h3_skills/.sync_source.json

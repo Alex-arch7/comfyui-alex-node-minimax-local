@@ -91,6 +91,26 @@ MiniMax **H3 音视频提示词编译器** + **Music 3 结构化音乐提示词*
 - **参考视频按秒拼 contact sheet**（每秒采样帧数可调），一次调用看完全片节奏；
 - 空输出自动重试一次；`⏱️ 目标秒数` 允许 1–60 秒（直连官方 H3 节点请保持 4–15）。
 
+#### 同步官方技能库（MiniMax-AI/MiniMax-H3）
+
+`resources/h3_skills/` 是官方技能库随包快照，**不会自动更新**，两种同步方式：
+
+1. **GitHub Actions 自动 PR**（本仓库已内置 `.github/workflows/sync-h3-skills.yml`）：
+   每月 1 日拉取上游 `skills/`，有差异才开 PR（无差异完全静默），审查合并即可；
+2. **本地脚本**（ComfyUI 机器上按需执行，纯标准库无依赖）：
+
+   ```bash
+   python tools/sync_h3_skills.py --dry-run   # 只看差异
+   python tools/sync_h3_skills.py             # 应用（自动备份旧版到 resources/.h3_skills_backup_*）
+   ```
+
+   也可挂 cron：`0 9 1 * * cd .../comfyui-alex-node-minimax-local && python3 tools/sync_h3_skills.py`。
+   私有仓库/限流时可设 `GITHUB_TOKEN` 环境变量提高 API 配额。
+
+上游更新呈**阵发式**（集中在模型发布前后），月度检查足够。
+新增/删除技能需重启 ComfyUI 才进下拉；仅正文变化下次运行即生效。自定义技能放
+`resources/custom_skills/`，同步永远不会碰它。
+
 ## 示例工作流（`examples/`）
 
 | 文件 | 内容 |

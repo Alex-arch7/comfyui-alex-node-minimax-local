@@ -1,0 +1,65 @@
+name: Sync official MiniMax-H3 skills
+
+# Pulls skills/ from https://github.com/MiniMax-AI/MiniMax-H3 into
+# resources/h3_skills/. Silent when there is nothing to sync (no PR is
+# opened unless files actually changed). Upstream history shows skill
+# updates arrive in bursts, so monthly is plenty; bump the cron if you
+# track MiniMax releases closely, or just run the script manually.
+
+on:
+  schedule:
+    - cron: "0 1 1 * *"   # 1st of every month 01:00 UTC (09:00 Beijing)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run sync script
+        id: sync
+        run: |
+          set +e
+          python tools/sync_h3_skills.py | tee sync_output.txt
+          code=${PIPESTATUS[0]}
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          {
+            echo "log<<EOF"
+            cat sync_output.txt
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          rm -rf resources/.h3_skills_backup_*   # keep backups out of the PR
+
+      - name: Regenerate file manifest
+        run: |
+          find . -type f \
+            -not -path "./.git/*" -not -path "*/__pycache__/*" \
+            -not -path "./cache/*" -not -name "MANIFEST.sha256" \
+            -not -name ".sync_source.json" \
+            -exec sha256sum {} + | sed 's|^\./||' | sort -k2 > MANIFEST.sha256
+
+      - name: Open PR when changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: auto/sync-h3-skills
+          delete-branch: true
+          commit-message: "chore(skills): sync official MiniMax-H3 skill library"
+          title: "chore(skills): sync official MiniMax-H3 skill library"
+          body: |
+            自动同步 `MiniMax-AI/MiniMax-H3` 的 `skills/` 目录。
+            同步日志见下；合并前请抽查 SKILL.md 变更是否符合预期。
+            ⚠️ 新增/删除技能需重启 ComfyUI 才会进入下拉与路由目录。
+
+            ```
+            ${{ steps.sync.outputs.log }}
+            ```
+          labels: automated,skills
