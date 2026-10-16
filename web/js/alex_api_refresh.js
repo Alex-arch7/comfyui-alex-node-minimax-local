@@ -11,7 +11,7 @@
 
 import { app } from "../../../scripts/app.js";
 
-const API_NODES = ["alex_h3_prompt_API", "alex_music3_API", "alex_qwen_image21_API"];
+const API_NODES = ["alex_h3_prompt_API", "alex_h3_skill_API", "alex_music3_API", "alex_qwen_image21_API"];
 const REFRESH_URL = "/alex_minimax/refresh_models";
 const CACHE_URL = "/alex_minimax/models_cache";
 
