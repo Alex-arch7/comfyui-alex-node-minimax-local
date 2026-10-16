@@ -306,6 +306,19 @@ check("h3_skill_spec: system prompt carries local output contract",
 check("h3_skill_spec: empty output flagged", h3_skill_spec.output_issues("   ", "i2va", 5.0) != [])
 check("h3_skill_spec: non-empty output passes", h3_skill_spec.output_issues("integrated_multimodal_description:\nx", "i2va", 5.0) == [])
 
+check("h3_skill_spec: custom alex-beauty-fashion discovered",
+      "alex-beauty-fashion" in h3_skill_spec.SKILL_NAMES)
+beauty = h3_skill_spec.skill_instructions("alex-beauty-fashion", "ref2va")
+check("h3_skill_spec: custom skill injects its own references",
+      "# Skill reference: references/action-library.md" in beauty
+      and "# Skill reference: references/h3-field-contract.md" in beauty
+      and "SKILL.cn" not in beauty)
+router = h3_skill_spec.router_prompt("夜景魅惑美女短片", "i2va", "none")
+check("h3_skill_spec: custom skill present in router catalog",
+      "alex-beauty-fashion" in router[0]["content"])
+check("h3_skill_spec: custom skill selection parses",
+      h3_skill_spec.parse_skill_selection("alex-beauty-fashion") == "alex-beauty-fashion")
+
 grid_uri = media.tensor_frame_grid_data_url(_FakeVideoTensor(
     [np.full((8, 8, 3), value / 255.0, dtype=np.float32) for value in range(4)]), [0, 1, 2, 3])
 check("media: contact sheet built", grid_uri.startswith("data:image/jpeg;base64,"))

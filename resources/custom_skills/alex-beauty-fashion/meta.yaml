@@ -1,0 +1,10 @@
+display-name-zh: Alex美女时尚写真生成器
+display-name-en: Alex Beauty Fashion Generator
+version: 0.1.0
+tag-en: "Beauty / Fashion"
+tag-cn: "美女 / 时尚"
+complete-tags-en:
+  - "Portrait / Creative Generation"
+  - "Fashion / Planning"
+author: Alex (personal corpus distillation, 49 clips, 2026-10)
+source-corpus: video-learning/ (49 ComfyUI H3 portrait shorts, 2026-10-11 ~ 2026-10-16)
