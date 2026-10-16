@@ -39,6 +39,12 @@ the user's wish conflicts with a rule, keep the rule for SAFETY and the wish for
 3. Confirm duration (default 8s; hard range 4-15s) and ratio (default 9:16).
 4. The subject must read clearly as an adult; if age is ambiguous, harden styling toward mature
    fashion (heels, structured garments, refined makeup) and state "adult woman" in the prompt.
+5. MINIMAL-REQUEST POLICY: if the user only types a trigger word (美女 / beauty / 氛围感 / lookbook)
+   with no other wish, never ask questions. Derive the sub-genre from the reference photo itself
+   (wardrobe, location, lighting), then pick an action chain from references/action-library.md and
+   a closing beat; keep the node's duration and ratio widgets as the only format authority. Across
+   repeated runs of the same minimal request, deliberately rotate chains (cute/allure/guofeng/
+   walk-in/playful) so seeds produce visibly different videos instead of the same safe choice.
 
 ## Step 2 - Pick a sub-genre (from the corpus)
 
