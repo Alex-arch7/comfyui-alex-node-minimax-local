@@ -26,7 +26,7 @@ import traceback
 
 from .alex_minimax import h3_skill_spec
 from .alex_minimax import media
-from .alex_minimax.llm_common import safe_print, extract_text, sanitized_result
+from .alex_minimax.llm_common import safe_print, extract_text, sanitized_result, sanitize_skill_output
 from .alex_minimax.backend_local import local_model_inputs, local_settings_from_kwargs, LocalLLMClient
 from .alex_minimax.backend_api import api_model_inputs, api_client_from_kwargs, api_model_from_kwargs
 
@@ -199,7 +199,7 @@ class H3SkillEngine:
             safe_print(f"[AlexH3Skill] backend={backend_label} model={model_id} mode={mode} skill={selected} "
                        f"图片={len(images)} 视频={len(videos)}")
             response = client.chat(payload)
-            output = _clean_reply(extract_text(response))
+            output = sanitize_skill_output(_clean_reply(extract_text(response)))
             issues = h3_skill_spec.output_issues(output, mode, duration)
             if issues:
                 safe_print(f"[AlexH3Skill] 空输出，重试一次：{issues}")
@@ -208,7 +208,7 @@ class H3SkillEngine:
                     {"role": "user", "content": "Return the complete requested content only, following the selected Skill. Problems: " + "; ".join(issues)},
                 ])
                 response = client.chat(payload | {"messages": messages})
-                output = _clean_reply(extract_text(response))
+                output = sanitize_skill_output(_clean_reply(extract_text(response)))
                 if h3_skill_spec.output_issues(output, mode, duration):
                     raise RuntimeError("模型未返回正文。请提高上下文长度和最大输出令牌，或更换指令遵循更强的模型。")
 

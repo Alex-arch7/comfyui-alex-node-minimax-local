@@ -319,6 +319,24 @@ check("h3_skill_spec: custom skill present in router catalog",
 check("h3_skill_spec: custom skill selection parses",
       h3_skill_spec.parse_skill_selection("alex-beauty-fashion") == "alex-beauty-fashion")
 
+messy = ("Based on the user request for an adult female atmosphere blockbuster we will select the "
+         "allure sub-genre. This chain emphasizes closeness and slow-burn tension.\n\n"
+         "---\n\n```yaml\nsubject_definitions:\n- <Subject 1> = adult woman from <Picture 1>\n"
+         "summary:\n[reference generation] + [keyframe completion]\n"
+         "detailed_description:\n[Shot 1] At 00:00.000 - ...\nnon_diegetic_music:\nN/A\n```")
+tidy = llm_common.sanitize_skill_output(messy)
+check("llm_common: preamble + yaml fence stripped to bare H3 body",
+      tidy.startswith("subject_definitions:") and "```" not in tidy and "we will select" not in tidy
+      and "non_diegetic_music:" in tidy)
+base_messy = "Here is the renderable prompt:\n```yaml\nintegrated_multimodal_description:\n[Shot 1] scene\n```"
+check("llm_common: base-mode preamble unwrapped too",
+      llm_common.sanitize_skill_output(base_messy).startswith("integrated_multimodal_description:"))
+storyboard = "## Storyboard Plan\n1. Opening shot of the product...\n2. Macro texture pass..."
+check("llm_common: non-H3 skill output passes through untouched",
+      llm_common.sanitize_skill_output(storyboard) == storyboard)
+check("llm_common: clean H3 output unchanged",
+      llm_common.sanitize_skill_output("subject_definitions:\n<Subject 1> = x") == "subject_definitions:\n<Subject 1> = x")
+
 grid_uri = media.tensor_frame_grid_data_url(_FakeVideoTensor(
     [np.full((8, 8, 3), value / 255.0, dtype=np.float32) for value in range(4)]), [0, 1, 2, 3])
 check("media: contact sheet built", grid_uri.startswith("data:image/jpeg;base64,"))

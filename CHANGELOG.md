@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/), versions follow SemVer.
 
+## [0.2.3] - 2026-10-17
+
+### Added
+- **Output sanitizer for Skill nodes**: agent-style preambles ("Based on your request we will
+  select…") and ```yaml fences are now stripped automatically; Skill output feeding official
+  video nodes is guaranteed bare H3 prompt text (non-H3 outputs like storyboard plans pass
+  through untouched).
+- `alex-beauty-fashion` gained a hard **output discipline** section: first character must be the
+  first field name, zero narration/fences/markdown, sub-genre names verbatim (no invented names).
+- Skill 节点新增**输出清洗器**：自动剥掉英文前言与 ```yaml 围栏，保证喂给官方视频节点的是
+  裸 H3 提示词；非 H3 结构（分镜计划等）原样放行。
+- `alex-beauty-fashion` 新增硬性「输出纪律」：首字符即字段名、零解说零围栏、子类型名禁止自创。
+
+### Tests
+- 62 → 66 smoke tests (real-world preamble+fence regression).
+
 ## [0.2.2] - 2026-10-16
 
 ### Fixed

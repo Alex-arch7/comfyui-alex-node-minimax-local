@@ -112,6 +112,38 @@ _H3_FIELD_ORDER = (
     "integrated_multimodal_description",
 )
 
+# The first field of each official structure; used as the cut point for
+# agent-style preambles ("Based on your request we will select…").
+_H3_FIRST_FIELD_MARKERS = ("subject_definitions:", "integrated_multimodal_description:")
+_FENCE_PATTERN = re.compile(r"```[a-zA-Z]*\s*\n(.*?)```", re.S)
+
+
+def sanitize_skill_output(text):
+    """Strip agent-style wrappers from Skill-node output.
+
+    Official H3 skills were written for conversational agents, so models love to
+    prepend selection narration and wrap the deliverable in ```yaml fences. The
+    Skill node feeds official video nodes, which need bare prompt text. Only
+    touches text that clearly contains an H3 structure; anything else (storyboard
+    plans from style skills, prose) passes through untouched.
+    """
+    original = str(text or "")
+    cleaned = original.strip()
+    if not cleaned:
+        return cleaned
+    # 1) If the H3 structure hides inside a fenced block, unwrap the first such fence.
+    for fence in _FENCE_PATTERN.finditer(cleaned):
+        if any(marker in fence.group(1) for marker in _H3_FIRST_FIELD_MARKERS):
+            cleaned = fence.group(1).strip()
+            break
+    # 2) Cut narration before the first official field name.
+    starts = [index for index in (cleaned.find(marker) for marker in _H3_FIRST_FIELD_MARKERS) if index != -1]
+    if starts:
+        cleaned = cleaned[min(starts):].strip()
+    # 3) Remove stray fence remnants.
+    cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned).rstrip("` \t\n").strip()
+    return cleaned
+
 
 def render_h3_prompt_dict(data):
     """Render a dict-shaped H3 structure into the official field-per-line text.

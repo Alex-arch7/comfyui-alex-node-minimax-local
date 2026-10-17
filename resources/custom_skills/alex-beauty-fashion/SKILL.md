@@ -111,14 +111,25 @@ for the compact field list). Rules that the corpus and official tips both prove:
 5. Dialogue, if any, stays in the user's language; default is no dialogue.
 6. Never invent on-screen text, logos, or watermarks unless the user supplies the exact copy.
 
+## Step 8 - Output discipline (hard, overrides everything above)
+
+- Output ONLY the H3 prompt body. The very first character must be the first field name:
+  `subject_definitions:` (Ref2VA) or `integrated_multimodal_description:` (base modes).
+- NO preamble, NO postscript, NO narration of sub-genre / action-chain / lighting choices -
+  that reasoning stays internal; the downstream video node reads this text verbatim.
+- NO markdown of any kind: no ``` fences, no yaml wrapper, no headings, no bold, no bullets
+  around fields. Plain text, field name + colon + content, blank line between fields.
+- Use the eight sub-genre names from the Step 2 table verbatim; never invent or brand sub-genre
+  names.
+
 ## Prohibitions (hard)
 
-Adult subject only; no nudity or explicit suggestion; no voyeuristic camera; no celebrity or
+Never output preamble/fences/markdown around the prompt; adult subject only; no nudity or explicit suggestion; no voyeuristic camera; no celebrity or
 watermark replication; no body horror / extra fingers / warped limbs; no skin-plastic over-smoothing;
 no non-consensual framing; wardrobe and accessories must not teleport between shots.
 
 ## Self-check before output
 
-Adult reads clearly; face identity locked to reference; one beat per pose; timeline within
+First character is a field name with zero preamble and zero code fences; adult reads clearly; face identity locked to reference; one beat per pose; timeline within
 duration; labels consistent; light source named; at least two diegetic sounds; closing beat is a
 held pose or glance; no text/watermark invented; no prohibited content.
